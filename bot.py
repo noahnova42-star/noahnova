@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI, Request
 from telegram import Bot, Update
+from telegram.ext import Application
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -8,7 +9,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 CHANNEL_ID = os.getenv('CHANNEL_ID')
 BOT_USERNAME = os.getenv('BOT_USERNAME')
-RENDER_URL = os.getenv('RENDER_URL')
+PORT = int(os.getenv('PORT', 8000))
 
 # Initialize FastAPI and bot
 app = FastAPI()
@@ -37,31 +38,29 @@ async def forward_video(chat_id: int, message_id: int):
         return False
 
 @app.get("/")
-async def root():
+async def health_check():
     return {"status": "alive"}
 
 @app.post(f"/{BOT_TOKEN}")
 async def webhook_handler(request: Request):
-    data = await request.json()
-    update = Update.de_json(data, bot)
-    
-    if update.channel_post and update.channel_post.video:
-        message_id = update.channel_post.message_id
-        deep_link = f"https://t.me/{BOT_USERNAME}?start={message_id}"
-        await send_message(CHANNEL_ID, f"🎥 Share this video:\n{deep_link}")
-    
-    if update.message and update.message.text:
-        if update.message.text.startswith('/start'):
-            args = update.message.text.split()[1:]
-            if args:
-                await forward_video(update.message.chat_id, int(args[0]))
-            else:
-                await send_message(update.message.chat_id, "Welcome! Click a video link to receive it.")
-    
-    return {"ok": True}
-
-@app.on_event("startup")
-async def startup_event():
-    webhook_url = f"{RENDER_URL}/{BOT_TOKEN}"
-    await bot.set_webhook(webhook_url)
-    print(f"Webhook set to {webhook_url}")
+    try:
+        data = await request.json()
+        update = Update.de_json(data, bot)
+        
+        if update.channel_post and update.channel_post.video:
+            message_id = update.channel_post.message_id
+            deep_link = f"https://t.me/{BOT_USERNAME}?start={message_id}"
+            await send_message(CHANNEL_ID, f"🎥 Share this video:\n{deep_link}")
+        
+        if update.message and update.message.text:
+            if update.message.text.startswith('/start'):
+                args = update.message.text.split()[1:]
+                if args:
+                    await forward_video(update.message.chat_id, int(args[0]))
+                else:
+                    await send_message(update.message.chat_id, "Welcome! Click a video link to receive it.")
+        
+        return {"ok": True}
+    except Exception as e:
+        print(f"Error in webhook handler: {e}")
+        return {"ok": False, "error": str(e)}

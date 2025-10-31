@@ -26,6 +26,24 @@ def webhook():
         })
     return "OK"
 
+def webhook():
+    data = request.get_json()
+
+    # Check for new message in the channel
+    if "channel_post" in data:
+        post = data["channel_post"]
+        chat_id = post["chat"]["id"]
+
+        # Only handle videos
+        if "video" in post:
+            file_id = post["video"]["file_id"]
+            link_id = str(uuid.uuid4())  # Generate unique link
+            links_db[link_id] = file_id
+
+            # Send deep link to channel
+            deep_link = f"https://t.me/{BOT_TOKEN}?start={link_id}"
+            send_message(chat_id, f"Deep link created: {deep_link}")
+
 # Health check (optional)
 @app.route('/')
 def index():

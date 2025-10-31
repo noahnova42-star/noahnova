@@ -1,46 +1,37 @@
-import os
+# bot.py
 from flask import Flask, request
+import os
 import requests
-
-TOKEN = os.getenv("BOT_TOKEN")  # Your bot token
-CHANNEL_ID = os.getenv("CHANNEL_ID")  # Your channel ID, e.g., -1001234567890
-BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 app = Flask(__name__)
 
-# Store video file_ids in memory (you can use a database for persistence)
-video_links = {}
+# Load token and channel from environment variables
+TOKEN = os.getenv("BOT_TOKEN")          # Put your bot token in .env
+CHANNEL_ID = os.getenv("CHANNEL_ID")    # Put your chat/channel ID in .env
+BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 
-@app.route("/webhook", methods=["POST"])
+# Webhook endpoint (Telegram will send updates here)
+@app.route('/webhook', methods=['POST'])
 def webhook():
-    update = request.get_json()
+    data = request.get_json()
+    print("Received update:", data)  # Check Render logs for incoming messages
 
-    # 1️⃣ Handle videos uploaded to your channel
-    if "channel_post" in update:
-        post = update["channel_post"]
-        if "video" in post:
-            file_id = post["video"]["file_id"]
-            video_links[file_id] = file_id  # store file_id
-            print(f"Video uploaded. Deep link: https://t.me/{TOKEN}?start={file_id}")
+    if "message" in data:
+        chat_id = data["message"]["chat"]["id"]
+        text = data["message"]["text"]
+        # Reply back to user
+        requests.post(f"{BASE_URL}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": f"You said: {text}"
+        })
+    return "OK"
 
-    # 2️⃣ Handle users starting the bot with deep link
-    if "message" in update:
-        msg = update["message"]
-        chat_id = msg["chat"]["id"]
+# Health check (optional)
+@app.route('/')
+def index():
+    return "Bot is running!"
 
-        if "text" in msg and msg["text"].startswith("/start"):
-            parts = msg["text"].split()
-            if len(parts) == 2:
-                file_id = parts[1]
-                if file_id in video_links:
-                    # Forward the video to the user
-                    requests.post(f"{BASE_URL}/sendVideo", data={
-                        "chat_id": chat_id,
-                        "video": file_id
-                    })
-
-    return {"ok": True}
-
+# For local testing
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

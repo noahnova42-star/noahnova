@@ -13,10 +13,18 @@ BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 # Webhook endpoint (Telegram will send updates here)
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    return "OK"
+    data = request.get_json()
+    print("Received update:", data)  # Check Render logs for incoming messages
 
-def webhook():
-            send_message(chat_id, f"Deep link created: {deep_link}")
+    if "message" in data:
+        chat_id = data["message"]["chat"]["id"]
+        text = data["message"]["text"]
+        # Reply back to user
+        requests.post(f"{BASE_URL}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": f"You said: {text}"
+        })
+    return "OK"
 
 # Health check (optional)
 @app.route('/')

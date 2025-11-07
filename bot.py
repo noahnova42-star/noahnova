@@ -1,3 +1,4 @@
+
 import os
 import json
 import secrets
@@ -14,36 +15,16 @@ BOT_USERNAME = os.getenv("BOT_USERNAME")  # your bot username without @, e.g. No
 DB_FILE = "videos.json"
 BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 
-# --- DATABASE SETUP ---
-DB_PATH = "videos.db"
+# --- Simple persistent DB for deep links ---
+if os.path.exists(DB_FILE):
+    with open(DB_FILE, "r") as f:
+        VIDEO_DB = json.load(f)
+else:
+    VIDEO_DB = {}
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS videos (
-            payload TEXT PRIMARY KEY,
-            channel_id INTEGER,
-            message_id INTEGER
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-def save_video(payload, channel_id, message_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO videos VALUES (?, ?, ?)", (payload, channel_id, message_id))
-    conn.commit()
-    conn.close()
-
-def get_video(payload):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT channel_id, message_id FROM videos WHERE payload=?", (payload,))
-    row = c.fetchone()
-    conn.close()
-    return {"channel_id": row[0], "message_id": row[1]} if row else None
+def save_db():
+    with open(DB_FILE, "w") as f:
+        json.dump(VIDEO_DB, f)
 
 # --- Helpers ---
 def send_message(chat_id, text):

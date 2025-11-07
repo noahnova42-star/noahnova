@@ -1,4 +1,3 @@
-
 import os
 import json
 import secrets
@@ -6,25 +5,20 @@ import threading
 import time
 import requests
 from flask import Flask, request
+from pymongo import MongoClient
 
 app = Flask(__name__)
 
-# CONFIG (set these as environment variables in Render)
-TOKEN = os.getenv("BOT_TOKEN")            # your bot token
-BOT_USERNAME = os.getenv("BOT_USERNAME")  # your bot username without @, e.g. NoahNova_Bot
-DB_FILE = "videos.json"
+# --- CONFIG ---
+TOKEN = os.getenv("BOT_TOKEN")             # Your bot token
+BOT_USERNAME = os.getenv("BOT_USERNAME")   # Your bot username (no @)
+MONGO_URI = os.getenv("MONGO_URI")         # Your MongoDB connection string
 BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 
-# --- Simple persistent DB for deep links ---
-if os.path.exists(DB_FILE):
-    with open(DB_FILE, "r") as f:
-        VIDEO_DB = json.load(f)
-else:
-    VIDEO_DB = {}
-
-def save_db():
-    with open(DB_FILE, "w") as f:
-        json.dump(VIDEO_DB, f)
+# --- CONNECT TO MONGO ---
+client = MongoClient(MONGO_URI)
+db = client["telegram_bot"]
+videos = db["videos"]
 
 # --- Helpers ---
 def send_message(chat_id, text):
@@ -52,7 +46,7 @@ def delete_message_later(chat_id, message_id, delay_seconds=86400):  # 86400 = 2
 def webhook():
     update = request.get_json(force=True)
 
-    # 1) CHANNEL POSTS
+    # 1️⃣ CHANNEL POSTS
     if "channel_post" in update:
         post = update["channel_post"]
         channel_id = post["chat"]["id"]
@@ -63,13 +57,17 @@ def webhook():
 
         if "video" in post or "document" in post:
             payload = secrets.token_urlsafe(8)
-            VIDEO_DB[payload] = {"channel_id": channel_id, "message_id": message_id}
-            save_db()
+            videos.insert_one({
+                "_id": payload,
+                "channel_id": channel_id,
+                "message_id": message_id,
+                "created_at": time.time()
+            })
 
             deep_link = f"https://t.me/{BOT_USERNAME}?start={payload}"
             send_message(channel_id, f"✅ Deep link created:\n{deep_link}")
 
-    # 2) USER MESSAGES
+    # 2️⃣ USER MESSAGES
     if "message" in update:
         msg = update["message"]
         chat_id = msg["chat"]["id"]
@@ -81,7 +79,7 @@ def webhook():
             parts = text.split()
             if len(parts) >= 2:
                 payload = parts[1]
-                info = VIDEO_DB.get(payload)
+                info = videos.find_one({"_id": payload})
                 if info:
                     response = forward_message(chat_id, info["channel_id"], info["message_id"])
                     if response.ok:

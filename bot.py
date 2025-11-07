@@ -1,8 +1,6 @@
-# bot.py
 import os
 import json
 import secrets
-import sqlite3
 import threading
 import time
 import requests
@@ -10,9 +8,10 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
-# CONFIG
-TOKEN = os.getenv("BOT_TOKEN")
-BOT_USERNAME = os.getenv("BOT_USERNAME")  # e.g., NoahNova_Bot
+# CONFIG (set these as environment variables in Render)
+TOKEN = os.getenv("BOT_TOKEN")            # your bot token
+BOT_USERNAME = os.getenv("BOT_USERNAME")  # your bot username without @, e.g. NoahNova_Bot
+DB_FILE = "videos.json"
 BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 
 # --- DATABASE SETUP ---
@@ -46,19 +45,19 @@ def get_video(payload):
     conn.close()
     return {"channel_id": row[0], "message_id": row[1]} if row else None
 
-# --- TELEGRAM HELPERS ---
+# --- Helpers ---
 def send_message(chat_id, text):
-    requests.post(f"{BASE_URL}/sendMessage", json={"chat_id": chat_id, "text": text})
+    return requests.post(f"{BASE_URL}/sendMessage", json={"chat_id": chat_id, "text": text})
 
 def forward_message(to_chat_id, from_chat_id, message_id):
-    requests.post(f"{BASE_URL}/forwardMessage", json={
+    return requests.post(f"{BASE_URL}/forwardMessage", json={
         "chat_id": to_chat_id,
         "from_chat_id": from_chat_id,
         "message_id": message_id
     })
 
-def delete_message_later(chat_id, message_id, delay_seconds=86400):
-    """Deletes message after delay (default 24 hours)."""
+# --- Auto delete video after 24 hours ---
+def delete_message_later(chat_id, message_id, delay_seconds=86400):  # 86400 = 24 hours
     def delete():
         time.sleep(delay_seconds)
         requests.get(f"{BASE_URL}/deleteMessage", params={
@@ -67,59 +66,59 @@ def delete_message_later(chat_id, message_id, delay_seconds=86400):
         })
     threading.Thread(target=delete).start()
 
-# --- WEBHOOK ---
+# --- Webhook endpoint ---
 @app.route("/webhook", methods=["POST"])
 def webhook():
     update = request.get_json(force=True)
 
-    # Handle channel posts
+    # 1) CHANNEL POSTS
     if "channel_post" in update:
         post = update["channel_post"]
         channel_id = post["chat"]["id"]
-        message_id = post["message_id"]
+        username = post["chat"].get("username")
+        message_id = post.get("message_id")
+
+        print("CHANNEL_POST from:", channel_id, username, "message_id:", message_id)
 
         if "video" in post or "document" in post:
             payload = secrets.token_urlsafe(8)
-            save_video(payload, channel_id, message_id)
+            VIDEO_DB[payload] = {"channel_id": channel_id, "message_id": message_id}
+            save_db()
 
             deep_link = f"https://t.me/{BOT_USERNAME}?start={payload}"
             send_message(channel_id, f"✅ Deep link created:\n{deep_link}")
 
-    # Handle user messages (/start <payload>)
+    # 2) USER MESSAGES
     if "message" in update:
         msg = update["message"]
         chat_id = msg["chat"]["id"]
         text = msg.get("text", "")
 
+        print("USER MESSAGE from:", chat_id, "text:", text)
+
         if text.startswith("/start"):
             parts = text.split()
             if len(parts) >= 2:
                 payload = parts[1]
-                info = get_video(payload)
+                info = VIDEO_DB.get(payload)
                 if info:
-                    resp = requests.post(f"{BASE_URL}/forwardMessage", json={
-                        "chat_id": chat_id,
-                        "from_chat_id": info["channel_id"],
-                        "message_id": info["message_id"]
-                    })
-                    if resp.ok:
-                        message_id = resp.json()["result"]["message_id"]
+                    response = forward_message(chat_id, info["channel_id"], info["message_id"])
+                    if response.ok:
+                        message_id = response.json()["result"]["message_id"]
                         delete_message_later(chat_id, message_id)
-                        send_message(chat_id, "🎬 Here’s your video! It’ll delete after 24h.")
+                    send_message(chat_id, "🎬 Here is the video you requested. It will disappear in 24h.")
                 else:
                     send_message(chat_id, "❌ Link invalid or expired.")
             else:
-                send_message(chat_id, "Hi! Send me a deep link to get your video.")
-        else:
-            send_message(chat_id, f"You said: {text}")
+                send_message(chat_id, "Send a deep link to get the video.")
 
     return {"ok": True}
 
+# --- Health check ---
 @app.route("/", methods=["GET"])
 def index():
     return "Bot running", 200
 
 if __name__ == "__main__":
-    init_db()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

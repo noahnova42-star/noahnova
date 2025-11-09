@@ -1,8 +1,4 @@
 flask
 requests
 gunicorn
-<<<<<<< HEAD
 pymongo
-=======
-pymongo
->>>>>>> 586c3c295136a193c0a3aa4e6f9e8bcb8894787c
